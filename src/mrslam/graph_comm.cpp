@@ -40,7 +40,7 @@ GraphComm::GraphComm (MRGraphSLAM* gslam, int idRobot, int nRobots, std::string 
 
   std::stringstream my_addr;
   my_addr << base_addr << idRobot+1;
-  std::cerr << "My address: " << my_addr.str() << std::endl;
+  ROS_INFO_STREAM("Robot " << _idRobot << ": My address: " << my_addr.str() << std::endl);
 
   _iSock = socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP);
 
@@ -80,19 +80,19 @@ bool GraphComm::robotsInRange(std::vector<int>& robotsToSend){
     //Send if inCommunicationRange
     for (int r = 0; r < _nRobots; r++){
       if (r != _idRobot){
-	//Looking for ground truth pose
-	if (inCommunicationRange(_idRobot, r))
-	    robotsToSend.push_back(r);
-      }
+        //Looking for ground truth pose
+        if (inCommunicationRange(_idRobot, r))
+            robotsToSend.push_back(r);
+      } 
     }
   }else if (_typeExperiment == BAG){
     //Send if recent ping
     ros::Time curr_time = ros::Time::now();
     for (int r = 0; r < _nRobots; r++){
       if (r != _idRobot){
-	if ((curr_time.toSec() -_rh->getTimeLastPing(r).toSec()) < COMM_TIME){ //Less than COMM_TIME seconds since last ping
-	  robotsToSend.push_back(r);
-	}
+        if ((curr_time.toSec() -_rh->getTimeLastPing(r).toSec()) < COMM_TIME){ //Less than COMM_TIME seconds since last ping
+          robotsToSend.push_back(r);
+        }
       }
     }
   }
@@ -114,14 +114,12 @@ void GraphComm::send(RobotMessage* cmsg, int rto){
   size_t sizebufc = (c) ? (c-bufferc):0;
  
   if (sizebufc){
-    std::cerr << "Send info to robot: " << rto << ". Address: " << to_addr.str() << ". Sent: " << sizebufc  << " bytes" << std::endl;
+    ROS_INFO_STREAM("Robot " << _idRobot << ": Send info to robot: " << rto << ". Address: " << to_addr.str() << ". Sent: " << sizebufc  << " bytes" << std::endl);
     sendto(_iSock, &bufferc, sizebufc, 0, (struct sockaddr*) &toSockAddr, sizeof(toSockAddr));
-    if (_typeExperiment == REAL)
-      _rh->publishSentMsg(cmsg);
+    //if (_typeExperiment == REAL)
+    _rh->publishSentMsg(cmsg);
   }
 }
-
-
 
 void GraphComm::sendToThrd(){
   int lastSentVertex = -1;
@@ -129,24 +127,25 @@ void GraphComm::sendToThrd(){
   while(1){
     if (robotsInRange(robotsToSend)){
       if (_gslam->lastVertex()->id() != lastSentVertex){
-	lastSentVertex = _gslam->lastVertex()->id();
+	      lastSentVertex = _gslam->lastVertex()->id();
 	
-	ComboMessage* cmsg = _gslam->constructComboMessage();
-	//Send to robots in range
-	for (size_t i = 0; i < robotsToSend.size(); i++){
-	  int rto = robotsToSend[i];
-	  send(cmsg, rto);
-	}
+	      ComboMessage* cmsg = _gslam->constructComboMessage();
+	      //Send to robots in range
+	      for (size_t i = 0; i < robotsToSend.size(); i++){
+	        int rto = robotsToSend[i];
+	        send(cmsg, rto);
+	      }
       }
 
       for (size_t i = 0; i < robotsToSend.size(); i++){
-	int rto = robotsToSend[i];
+	      int rto = robotsToSend[i];
 
-	CondensedGraphMessage* gmsg = _gslam->constructCondensedGraphMessage(rto);
-	//GraphMessage* gmsg = _gslam->constructGraphMessage(rto);
+	      CondensedGraphMessage* gmsg = _gslam->constructCondensedGraphMessage(rto);
+	      //GraphMessage* gmsg = _gslam->constructGraphMessage(rto);
 
-	if (gmsg)
-	  send(gmsg, rto);
+	      if (gmsg){
+          send(gmsg, rto);
+        }
       }
     }
     usleep(150000);
@@ -161,7 +160,7 @@ RobotMessage* GraphComm::receive(){
   char buffer[sizebuf];
 
   int nbytes = recvfrom(_iSock, &buffer, sizebuf ,0,(struct sockaddr*)&toSockAddr, (socklen_t*)&toSockAddrLen);
-  fprintf(stderr, "Received %i bytes.\n", nbytes);
+  ROS_INFO("Robot %i: Received %i bytes.", _idRobot, nbytes);
 
   //////////////////
   //Deserialize data
@@ -175,20 +174,31 @@ void GraphComm::receiveFromThrd(){
   while(1){
     //////////////////
     //Receive data
+/*     for (int r = 0; r<_nRobots; r++){
+      if ( r != _idRobot){
+        RobotMessage* msg = _rh->getRobotMsg(r);
+        if (msg){
+          ROS_INFO("Robot: %i: Received info from: %i via rostopic", msg->robotId());
+          StampedRobotMessage vmsg;
+          vmsg.msg = msg;
+          vmsg.refVertex = _gslam->lastVertex();
+          boost::mutex::scoped_lock lock(_queueMutex);
+          _queue.push(vmsg);
+        }
+      }
+    } */
     RobotMessage* msg = receive();
-
-    fprintf(stderr, "Received info from: %i\n", msg->robotId());
-    if (_typeExperiment == REAL){
+    if (msg){
       _rh->publishReceivedMsg(msg);
       _rh->publishPing(msg->robotId());
+      ROS_INFO("Robot %i: Received info from: %i via IP", _idRobot, msg->robotId());
+      StampedRobotMessage vmsg;
+      vmsg.msg = msg;
+      vmsg.refVertex = _gslam->lastVertex();
+
+      boost::mutex::scoped_lock lock(_queueMutex);
+      _queue.push(vmsg);
     }
-
-    StampedRobotMessage vmsg;
-    vmsg.msg = msg;
-    vmsg.refVertex = _gslam->lastVertex();
-
-    boost::mutex::scoped_lock lock(_queueMutex);
-    _queue.push(vmsg);
   }
 }
 

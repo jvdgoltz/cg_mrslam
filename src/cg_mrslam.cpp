@@ -94,10 +94,10 @@ int main(int argc, char **argv)
   arg.parseArgs(argc, argv);
   
   if (modality != "sim" && modality != "real" && modality != "bag"){
-    std::cerr << "Unknown modality: " << modality << std::endl;
+    ROS_ERROR_STREAM("Robot " << idRobot << ": Unknown modality: " << modality);
     exit(0);
   } else {
-    std::cerr << "Starting cg_mrslam in modality: " << modality << std::endl;
+    ROS_INFO_STREAM("Robot " << idRobot << ": Starting cg_mrslam in modality: " << modality);
     if (modality == "sim")
       typeExperiment = SIM;
     else if (modality == "real")
@@ -140,7 +140,7 @@ int main(int argc, char **argv)
     if (initialPose.size()==3){
       currEst = SE2(initialPose[0],initialPose[1],initialPose[2]);
     }else {
-      std::cerr << "Error. Provide a valid initial pose (x, y, theta)" << std::endl;
+      ROS_ERROR_STREAM("Robot " << idRobot << ": Error. Provide a valid initial pose (x, y, theta)");
       exit(0);
     }
   }else{
@@ -150,8 +150,8 @@ int main(int argc, char **argv)
       currEst = odomPosk_1;
   }
   
-  std::cout << "My initial position is: " << currEst.translation().x() << " " << currEst.translation().y() << " " << currEst.rotation().angle() << std::endl;
-  std::cout << "My initial odometry is: " << odomPosk_1.translation().x() << " " << odomPosk_1.translation().y() << " " << odomPosk_1.rotation().angle() << std::endl;
+  ROS_INFO_STREAM("Robot " << idRobot << ": My initial position is: " << currEst.translation().x() << " " << currEst.translation().y() << " " << currEst.rotation().angle());
+  ROS_INFO_STREAM("Robot " << idRobot << ": My initial odometry is: " << odomPosk_1.translation().x() << " " << odomPosk_1.translation().y() << " " << odomPosk_1.rotation().angle());
 
   //Graph building
   MRGraphSLAM gslam;

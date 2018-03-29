@@ -35,7 +35,10 @@ RosHandler::RosHandler (int idRobot, int nRobots, TypeExperiment typeExperiment)
   _typeExperiment = typeExperiment;
 
   _gtPoses = new SE2[nRobots];
+  _robotMsg = new cg_mrslam::SLAM[nRobots];
+  _msgEmpty = true;
   _subgt = new ros::Subscriber[nRobots];
+  _subRobotMsg = new ros::Subscriber[nRobots];
   _timeLastPing = new ros::Time[nRobots];
   
   _odomTopic = "odom";
@@ -52,13 +55,13 @@ RosHandler::RosHandler (int idRobot, int nRobots, TypeExperiment typeExperiment)
   std::string delimiter = "_";
   _rootns = fullns.substr(0, fullns.find(delimiter));
 
-  std::cerr << "NAMESPACE: " << fullns << std::endl;
-  std::cerr << "ROOT NAMESPACE: " << _rootns << std::endl;
+  ROS_INFO_STREAM("Robot " << _idRobot <<": NAMESPACE: " << fullns);
+  ROS_INFO_STREAM("Robot " << _idRobot <<": ROOT NAMESPACE: " << _rootns);
 }
 
 void RosHandler::pingCallback(const cg_mrslam::Ping::ConstPtr& msg){
   int robot = msg->robotFrom;
-  std::cerr << "Received Ping from robot " << robot << std::endl;
+  ROS_INFO_STREAM("Robot " << _idRobot <<": Received Ping from robot " << robot);
   
   _timeLastPing[robot] = ros::Time::now();
 }
@@ -77,6 +80,12 @@ void RosHandler::odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
 void RosHandler::scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg)
 {
   _laserscan = *msg;
+}
+
+void RosHandler::robotCallback(const cg_mrslam::SLAM::ConstPtr& msg, cg_mrslam::SLAM *robotMsg)
+{
+  *robotMsg = *msg;
+  _msgEmpty = false;
 }
 
 SE2 RosHandler::getOdom(){
@@ -104,6 +113,13 @@ RobotLaser* RosHandler::getLaser(){
   rlaser->setHostname("hostname");
 
   return rlaser;
+}
+
+RobotMessage* RosHandler::getRobotMsg(int robot){
+  RobotMessage* robotMsg;
+  createRobotMsg(_robotMsg[robot], robotMsg);
+  //ROS_INFO("Robot %i: Created RobotMsg %i", robot);
+  return robotMsg;  
 }
 
 void RosHandler::init(){
@@ -136,7 +152,7 @@ void RosHandler::init(){
       ros::Duration(1.0).sleep();
     }
 
-    std::cerr << "Robot-laser transform: (" << _trobotlaser.translation().x() << ", " << _trobotlaser.translation().y() << ", " << _trobotlaser.rotation().angle() << ")" << std::endl;
+    ROS_INFO_STREAM("Robot " << _idRobot << ": Robot-laser transform: (" << _trobotlaser.translation().x() << ", " << _trobotlaser.translation().y() << ", " << _trobotlaser.rotation().angle() << ")");
   }
 
   if (_typeExperiment == SIM){
@@ -168,13 +184,22 @@ void RosHandler::run(){
       nametopic << _rootns << "_" << r << "/base_pose_ground_truth";
       _subgt[r] = _nh.subscribe<nav_msgs::Odometry>(nametopic.str(), 1, boost::bind(&RosHandler::groundTruthCallback, this, _1, &_gtPoses[r]));
     }
-  } else if (_typeExperiment == REAL){
+  }// else if (_typeExperiment == REAL){
     //publish ping, sent and received messages
-    _pubRecv = _nh.advertise<cg_mrslam::SLAM>("recv_msgs", 1);
-    _pubSent = _nh.advertise<cg_mrslam::SLAM>("sent_msgs", 1);
-    _pubPing = _nh.advertise<cg_mrslam::Ping>("ping_msgs", 1);
+  _pubRecv = _nh.advertise<cg_mrslam::SLAM>("recv_msgs", 1);
+  _pubSent = _nh.advertise<cg_mrslam::SLAM>("sent_msgs", 1);
+  _pubPing = _nh.advertise<cg_mrslam::Ping>("ping_msgs", 1);
+  //}
+  for (int r = 0; r < _nRobots; r++){
+    if (r != _idRobot){
+      std::stringstream robotopic;
+      robotopic << _rootns << "_" << r << "/sent_msgs";
+      _subRobotMsg[r] = _nh.subscribe<cg_mrslam::SLAM>(robotopic.str(), 10, boost::bind(&RosHandler::robotCallback, this, _1, &_robotMsg[r]));
+      ROS_INFO_STREAM("Robot " << _idRobot << ": Subscribed to: " << robotopic.str());
+    }
   }
 }
+
 
 void RosHandler::publishPing(int idRobotFrom){
   cg_mrslam::Ping rosmsg;
@@ -194,7 +219,7 @@ void RosHandler::createComboMsg(ComboMessage* cmsg, cg_mrslam::SLAM& dslamMsg){
   dslamMsg.type = cmsg->type();
   
   cg_mrslam::RobotLaser laser;
-  laser.nodeId = cmsg->nodeId;
+  laser.nodeId   = cmsg->nodeId;
   laser.readings = cmsg->readings;
   laser.minAngle = cmsg->minangle;
   laser.angleInc = cmsg->angleincrement;
@@ -243,6 +268,56 @@ void RosHandler::createDSlamMsg(RobotMessage* msg, cg_mrslam::SLAM& dslamMsg){
     CondensedGraphMessage* gmsg = dynamic_cast<CondensedGraphMessage*>(msg);
     if (gmsg)
       createCondensedGraphMsg(gmsg, dslamMsg);
+  }
+}
+
+void RosHandler::createRobotMsg(cg_mrslam::SLAM& slamMsg, RobotMessage* robotMsg){
+  if (!_msgEmpty){
+    ROS_INFO("Robot %i: Received msg type is: %i", _idRobot, slamMsg.type);  //robotMsg->header.stamp = ros::Time::now();
+    if (slamMsg.type == 7){
+      CondensedGraphMessage* gmsg = dynamic_cast<CondensedGraphMessage*>(robotMsg);
+      gmsg = new CondensedGraphMessage(slamMsg.robotId);
+      
+      gmsg->edgeVector.resize(slamMsg.edges.size());
+      for (size_t i = 0; i < slamMsg.edges.size(); i++){
+        gmsg->edgeVector[i].idfrom      = slamMsg.edges[i].idFrom;
+        gmsg->edgeVector[i].idto        = slamMsg.edges[i].idTo;
+        gmsg->edgeVector[i].estimate[0] = slamMsg.edges[i].estimate[0];
+        gmsg->edgeVector[i].estimate[1] = slamMsg.edges[i].estimate[1];
+        gmsg->edgeVector[i].estimate[2] = slamMsg.edges[i].estimate[2];
+        gmsg->edgeVector[i].information[0] = slamMsg.edges[i].information[0];
+        gmsg->edgeVector[i].information[1] = slamMsg.edges[i].information[1];
+        gmsg->edgeVector[i].information[2] = slamMsg.edges[i].information[2];
+        gmsg->edgeVector[i].information[3] = slamMsg.edges[i].information[3];
+        gmsg->edgeVector[i].information[4] = slamMsg.edges[i].information[4];
+        gmsg->edgeVector[i].information[5] = slamMsg.edges[i].information[5];
+      }
+      gmsg->closures = slamMsg.closures;
+      * robotMsg = * gmsg;
+    } else if (slamMsg.type == 4){
+      ComboMessage* cmsg = dynamic_cast<ComboMessage*>(robotMsg);
+      cmsg = new ComboMessage(slamMsg.robotId);
+      cmsg->nodeId          = slamMsg.laser.nodeId;
+      cmsg->readings        = slamMsg.laser.readings;
+      cmsg->minangle        = slamMsg.laser.minAngle;
+      cmsg->angleincrement  = slamMsg.laser.angleInc;
+      cmsg->maxrange        = slamMsg.laser.maxRange;
+      cmsg->accuracy        = slamMsg.laser.accuracy;
+      cmsg->vertexVector.resize(slamMsg.vertices.size());
+      for (size_t i = 0; i < slamMsg.vertices.size(); i++){
+        cmsg->vertexVector[i].id          = slamMsg.vertices[i].id;
+        cmsg->vertexVector[i].estimate[0] = slamMsg.vertices[i].estimate[0];
+        cmsg->vertexVector[i].estimate[1] = slamMsg.vertices[i].estimate[1];
+        cmsg->vertexVector[i].estimate[2] = slamMsg.vertices[i].estimate[2];   
+      }
+      * robotMsg = * cmsg;
+    } else {
+      ROS_INFO("Robot %i: Message type unknown", _idRobot);
+      robotMsg = nullptr;
+    }
+  } else {
+    //ROS_INFO("Robot %i: SLAM MSG is empty", _idRobot);
+    robotMsg = nullptr;
   }
 }
 

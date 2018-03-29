@@ -59,6 +59,7 @@ class RosHandler
   RobotLaser* getLaser();
   inline float getLaserMaxRange() {return _laserMaxRange;}
   inline SE2 getGroundTruth(int robot){return _gtPoses[robot];}
+  RobotMessage* getRobotMsg(int robot);
   inline ros::Time getTimeLastPing(int robot){return _timeLastPing[robot];}
 
   inline void setOdomTopic(std::string odomTopic) {_odomTopic = odomTopic;}
@@ -78,10 +79,12 @@ class RosHandler
   void scanCallback(const sensor_msgs::LaserScan::ConstPtr& msg);
   void groundTruthCallback(const nav_msgs::Odometry::ConstPtr& msg, SE2 *gtpose);
   void pingCallback(const cg_mrslam::Ping::ConstPtr& msg);
+  void robotCallback(const cg_mrslam::SLAM::ConstPtr& msg, cg_mrslam::SLAM *robotMsg);
 
   void createDSlamMsg(RobotMessage* msg, cg_mrslam::SLAM& dslamMsg);
   void createCondensedGraphMsg(CondensedGraphMessage* gmsg,  cg_mrslam::SLAM& dslamMsg);
   void createComboMsg(ComboMessage* cmsg, cg_mrslam::SLAM& dslamMsg);
+  void createRobotMsg(cg_mrslam::SLAM& slamMsg, RobotMessage* robotMsg);
 
   ////////////////////
   ros::NodeHandle _nh;
@@ -91,6 +94,7 @@ class RosHandler
   ros::Subscriber _subScan;
   ros::Subscriber *_subgt;
   ros::Subscriber _subPing;
+  ros::Subscriber *_subRobotMsg;
 
   //Publishers
   ros::Publisher _pubRecv;
@@ -108,12 +112,14 @@ class RosHandler
   bool _useOdom, _useLaser;
   string _baseFrameId;
   SE2 _trobotlaser;
+  bool _msgEmpty;
 
   //ROS msgs
   nav_msgs::Odometry _odom;
   sensor_msgs::LaserScan _laserscan;
   float _laserMaxRange;
   SE2 *_gtPoses;
+  cg_mrslam::SLAM *_robotMsg;
 
   ros::Time *_timeLastPing;
 

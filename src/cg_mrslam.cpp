@@ -74,7 +74,7 @@ int main(int argc, char **argv)
   arg.param("inlierThreshold",  inlierThreshold, 2.,   "inlier threshold");
   arg.param("idRobot", idRobot, 0, "robot identifier" );
   arg.param("nRobots", nRobots, 1, "number of robots" );
-  arg.param("baseAddr", base_addr, "192.168.0.", "base IP address of the MR system" );
+  arg.param("baseAddr", base_addr, "127.0.0.", "base IP address of the MR system" );
   arg.param("angularUpdate", localizationAngularUpdate, M_PI_4, "angular rotation interval for updating the graph, in radians");
   arg.param("linearUpdate", localizationLinearUpdate, 0.25, "linear translation interval for updating the graph, in meters");
   arg.param("maxScoreMR",    maxScoreMR, 0.15,  "score of the intra-robot matcher, the higher the less matches");
